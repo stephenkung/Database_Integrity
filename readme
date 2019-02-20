@@ -1,0 +1,22 @@
+Liming Gong #1799174
+
+(1) How to run?
+python refint.py "Database=xxx"
+xxx is the schema file
+
+(2) How I do?
+1,parse the schema file, get all the Table_name, PKs, FKs, and store respectively in list. FK stores their name, their referring table_name, and referring attribute_name.  
+2,for PK integrity, check 2 things: check null and duplication. use sql like below and sum up all return rows:
+select count(*) from T1 where ( K11 is null ); 
+select count(*) from T1 group by K11 having count(*) >1; 
+3,for FK integrity, check by left join and sum up all return rows:
+select count(*) from T3 left join T1 on T3.K11=T1.K11 where T1.K11 is null; 
+4,count the table size, then after computing the err_rate, the result is written into a table named QM.
+
+(3) limitations and more:
+the program can't handle unexisted PK and FK given by schema. 
+the program doesn't use error threshold, even though you can give one, but this parameter will be discarded.
+bonus is not done.
+the program can handle composite PK with any number of attributes.
+the program can handle any number of FKs.   
+the program will ignore unexisted foreign key refrence(if T1.attrbute1->T2.attribute2, while attribute2 doesn't exist in T2, then this FK will be ignored).
