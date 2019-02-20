@@ -100,8 +100,6 @@ def gen_and_run_sql_for_fk_check(table_list, pk_list, fk_list, fk_self_list, out
 				else: 
 					print("Error, FK:",k[0],',',v[0],'is not a valid PK in anothe table.')
 					#FIXME need update, just ignore this foreign key
-
-
 			print("For FK check, table ",i, " violation is ",fk_err_list[i]) 
 	return fk_err_list
 
@@ -132,9 +130,10 @@ def get_table_size(cur, tb_name):
 
 
 
-def computer_metric(tb_size, pk_err, fk_err):
+def computer_metric(tb_size, pk_err, fk_err, fk_list):
 	pk_err_rate = [(x*100.0)/y for x, y in zip(pk_err, tb_size)]
-	fk_err_rate = [(x*100.0)/y for x, y in zip(fk_err, tb_size)]
+	num_of_fk = [(1 if len(x)==0 else len(x))  for x in fk_list] #can't be 0 because it is the divisor
+	fk_err_rate = [(x*100.0)/(y*z) for x, y, z in zip(fk_err, tb_size, num_of_fk)]
 	ok_col = ["Y"]* len(pk_err_rate)
 	#with open(outfile, "w") as ff:
 	for i in range(len(tb_size)):
@@ -199,7 +198,7 @@ def main():
 		print("size of ",tb, "is ", tb_size)
 		tb_size_list.append(tb_size)
 
-	pk_err_list, fk_err_list, ok_list = computer_metric(tb_size_list, pk_err_list, fk_err_list)
+	pk_err_list, fk_err_list, ok_list = computer_metric(tb_size_list, pk_err_list, fk_err_list, fk_list)
 	write_database(table_list, pk_err_list, fk_err_list, ok_list, cursor)
 	conn.commit()
 	cursor.close()
