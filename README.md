@@ -1,10 +1,10 @@
 # Database_Integrity
-To check PK and FK integrity of PostgreSQL database.     
+To check primary key and foreign key integrity of PostgreSQL database.     
 It can automatically generate SQL queries base on the input database schema file.     
 After running these queries, it will geneate the rsult table and save it to database.     
 
 # Resources
-readme: introduction of the program     
+readme: introduction of the code            
 refint.py: my code to check Primary key and Foreign key integrity       
 refint.sql: generated SQL result of refint.py     
 testcases_refint_ta.sql: the example database for testing usage     
