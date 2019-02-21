@@ -1,22 +1,23 @@
 Liming Gong #1799174
 
-(1) How to run?
+How to run?
 python refint.py "Database=xxx"
-xxx is the schema file
+python refint.py "Database=xxx; err=0.xxx"
 
-(2) How I do?
-1,parse the schema file, get all the Table_name, PKs, FKs, and store respectively in list. FK stores their name, their referring table_name, and referring attribute_name.  
-2,for PK integrity, check 2 things: check null and duplication. use sql like below and sum up all return rows:
+How I do?
+(1)parse the schema file, get all the Table_name, PKs, FKs, and store respectively in list. FK stores their name, their referring table_name, and referring attribute_name.  
+(2)do sanity check, remove unexisted FK/PK attributes from above lists.
+(3)for PK integrity, check 2 things: check null and duplication. use sql like below and sum up all return rows:
 select count(*) from T1 where ( K11 is null ); 
 select count(*) from T1 group by K11 having count(*) >1; 
-3,for FK integrity, check by left join and sum up all return rows:
+(4)for FK integrity, check by left join and sum up all return rows:
 select count(*) from T3 left join T1 on T3.K11=T1.K11 where T1.K11 is null; 
-4,count the table size, then after computing the err_rate, the result is written into a table named QM.
+(5)count the table size, then after computing the err_rate, the result is written into a table named QM.
+(6)it also handle when FK's PK is duplicated. When an FK attrbite is duplicated in corresponding PK, it is counted as error. SQL as below:
+select count(*) from T4 where K31 in (select K31 from  T3 group by K31 having count(*)>1);
 
-(3) limitations and more:
-the program can't handle unexisted PK and FK given by schema. 
-the program doesn't use error threshold, even though you can give one, but this parameter will be discarded.
+limitations and more?
 bonus is not done.
 the program can handle composite PK with any number of attributes.
 the program can handle any number of FKs.   
-the program will ignore unexisted foreign key refrence(if T1.attrbute1->T2.attribute2, while attribute2 doesn't exist in T2, then this FK will be ignored).
+the program will ignore unexisted PK/FK.

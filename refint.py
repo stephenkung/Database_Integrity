@@ -43,10 +43,27 @@ def parse_input(infile):
 	assert(len(fk_list)==len(fk_self_list))
 	return table_list, pk_list, fk_list, fk_self_list
 			
+#check a given key attribute exist or not
+def sanity_check(table_list, pk_list, fk_self_list, cur, outfile):
+	tb_real_columns=[]
+	ff=open(outfile,"w")
+	for i in range(len(table_list)):
+		sql = "select column_name from information_schema.columns where table_name="+"\'"+table_list[i].lower()+"\'"+";\n"
+		#print("sanity check:",sql)
+		cur.execute(sql)
+		ff.write(sql)
+		rows = cur.fetchall()
+		rows = [list(i) for i in rows]
+		rows = [x for sublist in rows for x in sublist]
+		print("available columus:", rows)
+		pk_list[i] = [x for x in pk_list[i] if x.lower() in rows]
+		fk_self_list[i] = [x for x in fk_self_list[i] if x.lower() in rows]
+	ff.close()
+	return pk_list, fk_self_list
 
 def gen_and_run_sql_for_pk_check(table_list, pk_list, outfile, cur):
 	pk_err_list = [0]*len(table_list)
-	with open(outfile,'w') as ff: 
+	with open(outfile,'a') as ff: 
 		#ff.write("--checking PK integrity \n")
 		for i in range(len(table_list)):
 			table_name = table_list[i]
@@ -71,7 +88,7 @@ def gen_and_run_sql_for_pk_check(table_list, pk_list, outfile, cur):
 			dup_check_query += " having count(*) >1; \n"
 			ff.write(dup_check_query)	
 			pk_err_list[i] += execute_sql(cur, dup_check_query, "check_dup")
-			print("For PK check, table ",i, " violation is ",pk_err_list[i]) 
+			print("For PK check, table ",i+1, " violation is ",pk_err_list[i]) 
 	return pk_err_list
 
 
@@ -85,7 +102,7 @@ def gen_and_run_sql_for_fk_check(table_list, pk_list, fk_list, fk_self_list, out
 			for j in range(len(fk_list[i])):
 				##check if foreign key is the pk of another table
 				fk = fk_list[i][j]  #fk is a dictonary with 1 element
-				k, v = list(fk.keys()), list(fk.values())
+				k, v = list(fk.keys()), list(fk.values()) #k is table name, v is attribute
 				#print(k,v)
 				tb_index = table_list.index(k[0])
 				if(v[0] in pk_list[tb_index]):  #print("FK:",k[0],",",v[0]," exist!")
@@ -95,12 +112,17 @@ def gen_and_run_sql_for_fk_check(table_list, pk_list, fk_list, fk_self_list, out
 					fk_check_sql += "	where "+k[0]+"."+v[0]+" is null; \n"
 					ff.write(fk_check_sql)   				
 					fk_err_list[i] += execute_sql(cur, fk_check_sql, "check_null")
-
-					##generate sql,check FK itself existance, FIXME maybe not need
+					
+					##check FK->PK's duplication
+					fk_pkdup_sql = "select count(*) from "+ table_list[i] + "\n"
+					fk_pkdup_sql += "	where "+ fk_self_list[i][j] + " in ( \n"
+					fk_pkdup_sql += "		select "+v[0]+" from "+k[0]+" group by "+v[0]+" having count(*)>1); \n"
+					ff.write(fk_pkdup_sql)   				
+					fk_err_list[i] += execute_sql(cur, fk_pkdup_sql, "check_null")
 				else: 
 					print("Error, FK:",k[0],',',v[0],'is not a valid PK in anothe table.')
 					#FIXME need update, just ignore this foreign key
-			print("For FK check, table ",i, " violation is ",fk_err_list[i]) 
+			print("For FK check, table ",i+1, " violation is ",fk_err_list[i]) 
 	return fk_err_list
 
 ##excute sql query, return the cnt number added together
@@ -123,6 +145,8 @@ def truncate(n, decimals=0):
     multiplier = 10 ** decimals
     return int(n * multiplier) / multiplier
 
+
+
 def get_table_size(cur, tb_name):
 	sql = "select count(*) from "+tb_name+";"
 	size = execute_sql(cur, sql, "check_null")
@@ -130,14 +154,14 @@ def get_table_size(cur, tb_name):
 
 
 
-def computer_metric(tb_size, pk_err, fk_err, fk_list):
+def computer_metric(tb_size, pk_err, fk_err, fk_self_list, threshold):
 	pk_err_rate = [(x*100.0)/y for x, y in zip(pk_err, tb_size)]
-	num_of_fk = [(1 if len(x)==0 else len(x))  for x in fk_list] #can't be 0 because it is the divisor
+	num_of_fk = [(1 if len(x)==0 else len(x))  for x in fk_self_list] #can't be 0 because it is the divisor
 	fk_err_rate = [(x*100.0)/(y*z) for x, y, z in zip(fk_err, tb_size, num_of_fk)]
 	ok_col = ["Y"]* len(pk_err_rate)
 	#with open(outfile, "w") as ff:
 	for i in range(len(tb_size)):
-		if(pk_err_rate[i]!=0 or fk_err_rate[i]!=0): ok_col[i]="N"
+		if(pk_err_rate[i] >threshold*100 or fk_err_rate[i]>threshold*100): ok_col[i]="N"
 		pk_err_rate[i] = truncate(pk_err_rate[i],1)
 		fk_err_rate[i] = truncate(fk_err_rate[i],1)
 		print("table ",i, "pk err rate:", pk_err_rate[i])
@@ -146,16 +170,21 @@ def computer_metric(tb_size, pk_err, fk_err, fk_list):
 	return pk_err_rate, fk_err_rate, ok_col
 
 
-def write_database(table_list, pk_err, fk_err, ok, cur):
-	sql = "drop table QM;"
+def write_database(table_list, pk_err, fk_err, ok, cur, outfile):
+	ff = open(outfile,'a')
+	sql = "drop table QM;\n"
 	cur.execute(sql)
-	sql = "create table QM(tableName varchar(50),entityError float(4), referentialError float(4), OK varchar(1) );"
+	ff.write(sql)
+	sql = "create table QM(tableName varchar(50),entityError float(4), referentialError float(4), OK varchar(1) );\n"
 	cur.execute(sql)
+	ff.write(sql)
 	for i in range(len(table_list)):
-		sql = "insert into QM values (" + "\'"+table_list[i]+"\'" +","+str(pk_err[i])+","+str(fk_err[i])+","+ "\'" +ok[i] +"\'" +");"
+		sql = "insert into QM values (" + "\'"+table_list[i]+"\'" +","+str(pk_err[i])+","+str(fk_err[i])+","+ "\'" +ok[i] +"\'" +");\n"
 		print("write database:",sql)
 		cur.execute(sql)
+		ff.write(sql)
 	print("Done!!")
+	ff.close()
 	
 	 	
 
@@ -168,11 +197,12 @@ def main():
 		cmd = args.cmd.replace(";","=").replace(" ","").split("=")
 		if len(cmd)>=3:
 			infile = cmd[-3]
-			err_thr = cmd[-1]	
+			err_thr = float(cmd[-1])	
 			print("input file is:",infile, ",err threshold is:", err_thr)
 		else:
 			infile = cmd[-1]
-			print("input file is:",infile)
+			err_thr = 0.01
+			print("input file is:",infile, ",err threshold is:", err_thr)
 	#Define our connection string
 	#conn_string = "host='localhost' dbname='postgres' user='postgres' password='password'"
 	conn_string = "host='/tmp/' dbname='team7' user='team7' password='team7'"
@@ -189,6 +219,7 @@ def main():
 	
 	out_sql_file = "refint.sql"
 	table_list, pk_list, fk_list, fk_self_list = parse_input(infile)
+	pk_list, fk_self_list = sanity_check(table_list, pk_list, fk_self_list, cursor, out_sql_file)
 	pk_err_list = gen_and_run_sql_for_pk_check(table_list, pk_list, out_sql_file, cursor)
 	fk_err_list = gen_and_run_sql_for_fk_check(table_list, pk_list, fk_list, fk_self_list, out_sql_file, cursor)
 	
@@ -198,8 +229,8 @@ def main():
 		print("size of ",tb, "is ", tb_size)
 		tb_size_list.append(tb_size)
 
-	pk_err_list, fk_err_list, ok_list = computer_metric(tb_size_list, pk_err_list, fk_err_list, fk_list)
-	write_database(table_list, pk_err_list, fk_err_list, ok_list, cursor)
+	pk_err_list, fk_err_list, ok_list = computer_metric(tb_size_list, pk_err_list, fk_err_list, fk_self_list, err_thr)
+	write_database(table_list, pk_err_list, fk_err_list, ok_list, cursor, out_sql_file)
 	conn.commit()
 	cursor.close()
 	conn.close()
