@@ -10,7 +10,7 @@ refint.sql: generated SQL result of refint.py
 testcases_refint_ta.sql: the example database for testing usage     
 dbxyz_ta.txt: example schema file for testing     
 
-# How to run:
+# How to run
 1) run testcases_refint_ta.sql in postgreSQL to generate a test databse    
 2) run cmd: python refint.py "Database=dbxyz_ta.txt; err=0.01"     
 
